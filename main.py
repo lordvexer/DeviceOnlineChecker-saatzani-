@@ -21,7 +21,7 @@ from PyQt5.QtGui import QColor
 
 DB_NAME = "devices.db"
 
-# --- Modern Neon Styling ---
+# --- استایل نهایی و حرفه‌ای ---
 MODERN_STYLE = """
     QWidget { background-color: #0F111A; color: #E0E0E0; font-family: 'Segoe UI'; font-size: 13px; }
     QTableWidget { 
@@ -84,9 +84,9 @@ class AddDeviceDialog(QDialog):
         self.ip_in = QLineEdit(); self.ip_in.setPlaceholderText("IP Address (e.g. 192.168.1.1)")
         self.port_in = QSpinBox(); self.port_in.setRange(1, 65535); self.port_in.setValue(80)
         btn = QPushButton("Save Device"); btn.clicked.connect(self.accept)
-        layout.addWidget(QLabel("Device Name:")); layout.addWidget(self.name_in)
+        layout.addWidget(QLabel("Device Label / Name:")); layout.addWidget(self.name_in)
         layout.addWidget(QLabel("IP Address:")); layout.addWidget(self.ip_in)
-        layout.addWidget(QLabel("Service Port:")); layout.addWidget(self.port_in)
+        layout.addWidget(QLabel("Monitoring Port:")); layout.addWidget(self.port_in)
         layout.addSpacing(10); layout.addWidget(btn)
 
 class LogWindow(QDialog):
@@ -151,7 +151,7 @@ class MainWindow(QWidget):
         conn.commit(); conn.close()
 
     def setup_ui(self):
-        self.setWindowTitle("Device Network Manitor By MHZ"); self.resize(1200, 750); self.setStyleSheet(MODERN_STYLE)
+        self.setWindowTitle("Device Monitor By Rabinn.ir"); self.resize(1200, 750); self.setStyleSheet(MODERN_STYLE)
         main_layout = QVBoxLayout(self); main_layout.setContentsMargins(15, 15, 15, 15)
         tools = QHBoxLayout()
         self.interval_spin = QSpinBox(); self.interval_spin.setRange(1, 3600); self.interval_spin.setValue(10)
@@ -171,7 +171,7 @@ class MainWindow(QWidget):
         self.table.cellDoubleClicked.connect(self.open_device_logs); self.table.viewport().installEventFilter(self)
         main_layout.addWidget(self.table)
 
-        footer = QHBoxLayout(); self.progress = QProgressBar(); self.status_lbl = QLabel("Ready")
+        footer = QHBoxLayout(); self.progress = QProgressBar(); self.status_lbl = QLabel("Monitoring Engine Ready")
         footer.addWidget(self.status_lbl); footer.addWidget(self.progress); main_layout.addLayout(footer)
 
     def eventFilter(self, source, event):
@@ -228,12 +228,12 @@ class MainWindow(QWidget):
 
     def delete_selected(self):
         rows = sorted(list(set(i.row() for i in self.table.selectedIndexes())), reverse=True)
-        if rows and QMessageBox.question(self, "Confirm", "Delete?", QMessageBox.Yes|QMessageBox.No) == QMessageBox.Yes:
+        if rows and QMessageBox.question(self, "Confirm", f"Delete {len(rows)} devices?", QMessageBox.Yes|QMessageBox.No) == QMessageBox.Yes:
             conn = sqlite3.connect(DB_NAME)
             for r in rows: conn.execute("DELETE FROM devices WHERE ip=? AND port=?", (self.table.item(r, 1).text(), int(self.table.item(r, 2).text())))
             conn.commit(); conn.close(); self.load_from_db()
 
-    def update_progress(self, rem, total): self.progress.setValue(int((rem/total)*100)); self.status_lbl.setText(f"Scanning in {rem}s")
+    def update_progress(self, rem, total): self.progress.setValue(int((rem/total)*100)); self.status_lbl.setText(f"Scan in {rem}s")
     def get_interval(self): return self.interval_spin.value()
     def get_ping_count(self): return self.ping_spin.value()
 
@@ -241,18 +241,36 @@ class SerialWorker(QThread):
     result_ready = pyqtSignal(dict); tick = pyqtSignal(int, int); checking_now = pyqtSignal(str, int)
     def __init__(self, dev, i_fn, p_fn): super().__init__(); self.devices = dev; self.i_fn = i_fn; self.p_fn = p_fn; self.running = True
     def run(self):
+        # تنظیمات مخفی کردن کنسول در ویندوز
+        startupinfo = None
+        creationflags = 0
+        if platform.system().lower() == "windows":
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            startupinfo.wShowWindow = 0
+            creationflags = 0x08000000  # CREATE_NO_WINDOW
+            
         while self.running:
             for d in list(self.devices):
                 if not self.running: break
                 ip, port = d['ip'], d['port']; self.checking_now.emit(ip, port)
-                p_ok = subprocess.run(["ping", "-n" if platform.system().lower()=="windows" else "-c", str(self.p_fn()), ip], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
+                
+                # پینگ بدون باز شدن پنجره سیاه
+                p_ok = subprocess.run(
+                    ["ping", "-n" if platform.system().lower()=="windows" else "-c", str(self.p_fn()), ip],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                    startupinfo=startupinfo, creationflags=creationflags
+                ).returncode == 0
+                
                 s_ok = False
                 try:
                     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s: s.settimeout(2); s_ok = (s.connect_ex((ip, port)) == 0)
                 except: pass
+                
                 ov = 1 if (p_ok and s_ok) else 0
                 conn = sqlite3.connect(DB_NAME); conn.execute("INSERT INTO device_logs VALUES (?,?,?,?,?,?)", (ip, port, int(p_ok), int(s_ok), ov, datetime.now().strftime("%Y-%m-%d %H:%M:%S"))); conn.commit(); conn.close()
                 self.result_ready.emit({"ip":ip, "port":port, "ping":p_ok, "port_ok":s_ok, "overall":ov})
+            
             w = self.i_fn()
             for i in range(w, 0, -1):
                 if not self.running: break
