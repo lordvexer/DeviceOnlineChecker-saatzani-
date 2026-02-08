@@ -351,8 +351,16 @@ class SerialWorker(QThread):
                 
                 s_ok = False
                 try:
-                    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s: s.settimeout(2); s_ok = (s.connect_ex((ip, port)) == 0)
-                except: pass
+                    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                        s.settimeout(3)
+                        if s.connect_ex((ip, port)) == 0:
+                            try:
+                                s.send(b"\r\n")   # 👈 مهم‌ترین خط
+                                s_ok = True
+                            except:
+                                s_ok = False
+                except:
+                    s_ok = False
                 
                 ov = 1 if (p_ok and s_ok) else 0
                 conn = sqlite3.connect(DB_NAME); conn.execute("INSERT INTO device_logs VALUES (?,?,?,?,?,?)", (ip, port, int(p_ok), int(s_ok), ov, datetime.now().strftime("%Y-%m-%d %H:%M:%S"))); conn.commit(); conn.close()
