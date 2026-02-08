@@ -8,13 +8,12 @@ import time
 import threading
 import webbrowser
 from datetime import datetime
-
 from PyQt5.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QPushButton,
     QFileDialog, QTableWidget, QTableWidgetItem,
     QLabel, QSpinBox, QMessageBox, QProgressBar,
     QHBoxLayout, QDialog, QDateTimeEdit, QHeaderView,
-    QAbstractItemView, QLineEdit
+    QAbstractItemView, QLineEdit,QMenu
 )
 from PyQt5.QtCore import QThread, pyqtSignal, Qt
 from PyQt5.QtGui import QColor
@@ -150,29 +149,90 @@ class MainWindow(QWidget):
         conn.execute("CREATE TABLE IF NOT EXISTS device_logs (ip TEXT, port INTEGER, ping INTEGER, port_status INTEGER, overall INTEGER, timestamp TEXT)")
         conn.commit(); conn.close()
 
+
+    def open_context_menu(self, pos):
+        row = self.table.rowAt(pos.y())
+        if row < 0:
+            return
+
+        menu = QMenu(self)
+        edit_action = menu.addAction("✏️ Edit Device")
+        delete_action = menu.addAction("🗑 Delete Device")
+
+        action = menu.exec_(self.table.viewport().mapToGlobal(pos))
+
+        if action == edit_action:
+            self.edit_device(row)
+        elif action == delete_action:
+            self.table.selectRow(row)
+            self.delete_selected()
+
+
     def setup_ui(self):
-        self.setWindowTitle("Device Monitor By Rabinn.ir"); self.resize(1200, 750); self.setStyleSheet(MODERN_STYLE)
-        main_layout = QVBoxLayout(self); main_layout.setContentsMargins(15, 15, 15, 15)
+        self.setWindowTitle("Device Monitor By Rabinn.ir")
+        self.resize(1200, 750)
+        self.setStyleSheet(MODERN_STYLE)    
+
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(15, 15, 15, 15)  
+
         tools = QHBoxLayout()
-        self.interval_spin = QSpinBox(); self.interval_spin.setRange(1, 3600); self.interval_spin.setValue(10)
-        self.ping_spin = QSpinBox(); self.ping_spin.setRange(1, 10); self.ping_spin.setValue(1)
-        btn_add = QPushButton("+ Add Manual"); btn_add.clicked.connect(self.add_manual)
-        btn_excel = QPushButton("Import Excel"); btn_excel.clicked.connect(self.import_excel)
-        btn_del = QPushButton("Delete Selected"); btn_del.clicked.connect(self.delete_selected)
-        tools.addWidget(QLabel("Interval (s):")); tools.addWidget(self.interval_spin)
-        tools.addWidget(QLabel("Pings:")); tools.addWidget(self.ping_spin)
-        tools.addStretch(); tools.addWidget(btn_add); tools.addWidget(btn_excel); tools.addWidget(btn_del)
-        main_layout.addLayout(tools)
+        self.interval_spin = QSpinBox()
+        self.interval_spin.setRange(1, 3600)
+        self.interval_spin.setValue(10) 
 
+        self.ping_spin = QSpinBox()
+        self.ping_spin.setRange(1, 10)
+        self.ping_spin.setValue(1)  
+
+        btn_add = QPushButton("+ Add Manual")
+        btn_add.clicked.connect(self.add_manual)    
+
+        btn_excel = QPushButton("Import Excel")
+        btn_excel.clicked.connect(self.import_excel)    
+
+        btn_del = QPushButton("Delete Selected")
+        btn_del.clicked.connect(self.delete_selected)   
+
+        tools.addWidget(QLabel("Interval (s):"))
+        tools.addWidget(self.interval_spin)
+        tools.addWidget(QLabel("Pings:"))
+        tools.addWidget(self.ping_spin)
+        tools.addStretch()
+        tools.addWidget(btn_add)
+        tools.addWidget(btn_excel)
+        tools.addWidget(btn_del)    
+
+        main_layout.addLayout(tools)    
+
+        # ✅ اول جدول ساخته میشه
         self.table = QTableWidget(0, 6)
-        self.table.setHorizontalHeaderLabels(["DEVICE NAME", "IP ADDRESS", "PORT", "PING", "SERVICE", "HEALTH STATUS"])
-        self.table.setAlternatingRowColors(True); self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers); self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        self.table.cellDoubleClicked.connect(self.open_device_logs); self.table.viewport().installEventFilter(self)
-        main_layout.addWidget(self.table)
+        self.table.setHorizontalHeaderLabels([
+            "DEVICE NAME", "IP ADDRESS", "PORT",
+            "PING", "SERVICE", "HEALTH STATUS"
+        ])  
 
-        footer = QHBoxLayout(); self.progress = QProgressBar(); self.status_lbl = QLabel("Monitoring Engine Ready")
-        footer.addWidget(self.status_lbl); footer.addWidget(self.progress); main_layout.addLayout(footer)
+        self.table.setAlternatingRowColors(True)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch) 
+
+        # ✅ بعد context menu وصل میشه
+        self.table.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.table.customContextMenuRequested.connect(self.open_context_menu)   
+
+        self.table.cellDoubleClicked.connect(self.open_device_logs)
+        self.table.viewport().installEventFilter(self)  
+
+        main_layout.addWidget(self.table)   
+
+        footer = QHBoxLayout()
+        self.progress = QProgressBar()
+        self.status_lbl = QLabel("Monitoring Engine Ready") 
+
+        footer.addWidget(self.status_lbl)
+        footer.addWidget(self.progress)
+        main_layout.addLayout(footer)
 
     def eventFilter(self, source, event):
         if event.type() == event.MouseButtonRelease and event.button() == Qt.MidButton:
@@ -236,7 +296,34 @@ class MainWindow(QWidget):
     def update_progress(self, rem, total): self.progress.setValue(int((rem/total)*100)); self.status_lbl.setText(f"Scan in {rem}s")
     def get_interval(self): return self.interval_spin.value()
     def get_ping_count(self): return self.ping_spin.value()
+    
+    def edit_device(self, row):
+        old_name = self.table.item(row, 0).text()
+        old_ip = self.table.item(row, 1).text()
+        old_port = int(self.table.item(row, 2).text())
 
+        dlg = AddDeviceDialog(self)
+        dlg.name_in.setText(old_name)
+        dlg.ip_in.setText(old_ip)
+        dlg.port_in.setValue(old_port)
+
+        if dlg.exec_():
+            new_name = dlg.name_in.text().strip()
+            new_ip = dlg.ip_in.text().strip()
+            new_port = dlg.port_in.value()
+
+            if not new_name or not new_ip:
+                return
+
+            conn = sqlite3.connect(DB_NAME)
+            conn.execute(
+                "UPDATE devices SET name=?, ip=?, port=? WHERE ip=? AND port=?",
+                (new_name, new_ip, new_port, old_ip, old_port)
+            )
+            conn.commit()
+            conn.close()
+
+            self.load_from_db()
 class SerialWorker(QThread):
     result_ready = pyqtSignal(dict); tick = pyqtSignal(int, int); checking_now = pyqtSignal(str, int)
     def __init__(self, dev, i_fn, p_fn): super().__init__(); self.devices = dev; self.i_fn = i_fn; self.p_fn = p_fn; self.running = True
